@@ -1,0 +1,12 @@
+<launch>
+
+  <!-- Spawn the human into the running IPA-Nirish Gazebo world -->
+  <node
+    name="spawn_person_walking"
+    pkg="gazebo_ros"
+    type="spawn_model"
+    args="-sdf -file $(env HOME)/.gazebo/models/person_walking/model.sdf -model person_walking -x 2.0 -y 0.0 -z 0.0"
+    output="screen"
+  />
+
+</launch>

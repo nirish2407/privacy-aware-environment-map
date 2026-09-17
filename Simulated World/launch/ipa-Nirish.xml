@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<launch>
+
+	<arg name="robot_env" default="ipa-Nirish"/>
+	<arg name="publish_world_state" value="true"/>
+
+	<!-- spawn environment -->
+	<include file="$(find cob_gazebo_worlds)/launch/world_urdf.xml">
+		<arg name="robot_env" value="$(arg robot_env)"/>
+		<arg name="publish_world_state" value="$(arg publish_world_state)"/>
+	</include>
+
+	<rosparam ns="world" command="load" file="$(find cob_gazebo_worlds)/urdf/$(arg robot_env)/world_controller.yaml"/>
+	<node ns="world" name="world_controller_spawner" pkg="controller_manager" type="controller_manager" args="spawn elevator_left_joint_position_controller elevator_right_joint_position_controller elevator_button1_joint_position_controller elevator_button2_joint_position_controller" respawn="false" output="screen"/>
+
+	<!-- elevator_button1_joint_position_controller elevator_button2_joint_position_controller-->
+	<node name="elevator" pkg="cob_gazebo_worlds" type="elevator.py"  respawn="false" output="screen" />
+
+
+<!-- Human 1 -->
+<node
+    name="spawn_person_1"
+    pkg="gazebo_ros"
+    type="spawn_model"
+    args="-sdf -file $(env HOME)/.gazebo/models/person_walking/model.sdf -model person_1 -x -13.7021 -y -5.3489 -z 0 -R 0 -P 0 -Y 0.9053"
+    output="screen"/>
+
+<!-- Human 2 -->
+<node
+    name="spawn_person_2"
+    pkg="gazebo_ros"
+    type="spawn_model"
+    args="-sdf -file $(env HOME)/.gazebo/models/person_walking/model.sdf -model person_2 -x -16.3308 -y 12.5422 -z 0 -R 0 -P 0 -Y -0.3865"
+    output="screen"/>
+
+<!-- Human 3 -->
+<node
+    name="spawn_person_3"
+    pkg="gazebo_ros"
+    type="spawn_model"
+    args="-sdf -file $(env HOME)/.gazebo/models/person_walking/model.sdf -model person_3 -x -11.9813 -y 12.7328 -z 0 -R 0 -P 0 -Y -0.0063"
+    output="screen"/>
+
+<!-- Human 4 -->
+<node
+    name="spawn_person_4"
+    pkg="gazebo_ros"
+    type="spawn_model"
+    args="-sdf -file $(env HOME)/.gazebo/models/person_walking/model.sdf -model person_4 -x 4.2871 -y -0.7336 -z 0 -R 0 -P 0 -Y -0.5290"
+    output="screen"/>
+
+
+
+
+
+</launch>
