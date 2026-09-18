@@ -259,7 +259,7 @@ rosrun privacy_environment_map privacy_marker.py _camera_id:=right __name:=priva
 /map
 ```
 
-Documented source LiDAR streams include:
+Source LiDAR streams include:
 
 ``` text
 /base_laser_front/scan
@@ -287,26 +287,6 @@ Detection topics are camera-specific:
 
 ``` text
 /privacy_detections_<camera_id>
-```
-
-## Coordinate Frames
-
-Important frames include:
-
-``` text
-map
-base_link
-odom_combined
-camera optical frames
-```
-
-The object-localization pipeline transforms camera-frame coordinates
-into the global `map` frame using TF.
-
-To inspect the TF tree:
-
-``` bash
-rosrun tf view_frames
 ```
 
 ## Object Localization
