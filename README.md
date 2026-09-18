@@ -21,6 +21,26 @@ simulation in **Gazebo**, using **ROS Noetic**. The system uses:
 The final result is an occupancy grid with persistent privacy-object
 markers that can be used as a basis for privacy-aware robot behavior.
 
+## Running the System
+
+Run the startup script:
+
+```bash
+./start_privacy_simulator.sh
+```
+
+The provided startup pipeline performs the following:
+
+1.  Sources ROS and the catkin workspace.
+2.  Starts the Care-O-Bot simulation.
+3.  Waits for the simulator to initialize.
+4.  Starts GMapping.
+5.  Starts left and right privacy detectors.
+6.  Starts left and right object-position nodes.
+7.  Starts left and right privacy-marker nodes.
+
+After startup, use RViz to visualize the `/map` topic and privacy markers.
+
 ## Project Goals
 
 The project follows four main steps:
@@ -76,19 +96,22 @@ The project follows four main steps:
 
 ## Repository Structure
 
-A typical project structure is:
-
-``` text
-privacy_environment_map/
-├── models/
-│   └── best.pt
-├── scripts/
-│   ├── privacy_detector.py
-│   ├── object_position.py
-│   └── privacy_marker.py
-├── launch/
-├── config/
+```text
+privacy-aware-environment-map/
+├── Analysis/
+│   └── ...
+├── Report/
+│   └── Privacy_Aware_Environment_Map.pdf
+├── Simulated World/
+│   ├── envs/
+│   ├── launch/
+│   └── urdf/
 ├── README.md
+├── object_position.py
+├── privacy_detector.py
+├── privacy_marker.py
+├── start_privacy_simulator.sh
+├── stop_privacy_simulator.sh
 └── ...
 ```
 
@@ -152,35 +175,19 @@ path is:
 /home/labuser/catkin_ws/src/privacy_environment_map/models/Model.pt
 ```
 
-## Running the System
-
-The provided startup pipeline performs the following:
-
-1.  Sources ROS and the catkin workspace.
-2.  Starts the Care-O-Bot simulation.
-3.  Waits for the simulator to initialize.
-4.  Starts GMapping.
-5.  Starts left and right privacy detectors.
-6.  Starts left and right object-position nodes.
-7.  Starts left and right privacy-marker nodes.
-
-The GMapping command used by the project is:
-
-``` bash
-rosrun gmapping slam_gmapping \
-  scan:=/scan_unified \
-  _base_frame:=base_link \
-  _odom_frame:=odom_combined
-```
-
-After startup, use RViz to visualize the `/map` topic and privacy
-markers.
-
-## Manual Pipeline (Starting Each Component Indivisually)
+## Manual Pipeline Execution (Starting Each Component Indivisually)
 
 The main components can be started separately when debugging:
 
 ``` bash
+# ROS environment
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+# Robot configuration
+export ROBOT=cob4-5
+export ROBOT_ENV=ipa-Nirish
+
 # Start simulation
 roslaunch cob_bringup_sim robot.launch
 ```
@@ -188,14 +195,52 @@ roslaunch cob_bringup_sim robot.launch
 Then start mapping:
 
 ``` bash
+# ROS environment
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+# start SLAM mapping
 rosrun gmapping slam_gmapping \
   scan:=/scan_unified \
   _base_frame:=base_link \
   _odom_frame:=odom_combined
 ```
 
-Start the privacy detector, object localization, and marker nodes using
-the project's configured parameters and camera IDs.
+Start the privacy detector script.
+
+``` bash
+# ROS environment
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+# Start the privacy detector script
+rosrun privacy_environment_map privacy_detector.py _camera_id:=left _node_name:=privacy_detector_left
+rosrun privacy_environment_map privacy_detector.py _camera_id:=right _node_name:=privacy_detector_right
+```
+
+Start the object localization script.
+
+``` bash
+# ROS environment
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+# Start the object localization script
+rosrun privacy_environment_map object_position.py _camera_id:=left __name:=object_position_left
+rosrun privacy_environment_map object_position.py _camera_id:=right __name:=object_position_right
+```
+
+Start the marker nodes script.
+
+``` bash
+# ROS environment
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+# Start the marker nodes script
+rosrun privacy_environment_map privacy_marker.py _camera_id:=left __name:=privacy_marker_left
+rosrun privacy_environment_map privacy_marker.py _camera_id:=right __name:=privacy_marker_right
+```
 
 ## ROS Nodes
 
