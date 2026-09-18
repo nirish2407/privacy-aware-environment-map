@@ -25,7 +25,7 @@ markers that can be used as a basis for privacy-aware robot behavior.
 
 The project follows four main steps:
 
-1.  Familiarize the system with the Care-O-Bot and its simulation
+1.  Familiarize with the Care-O-Bot system and its simulation
     environment.
 2.  Generate an environment map using the robot's LiDAR sensors.
 3.  Identify privacy-sensitive objects using camera-based object
@@ -74,38 +74,6 @@ The project follows four main steps:
                                                 (Map + Privacy Object Locations)
 ```
 
-## Hardware and Simulation
-
-The project uses the simulated **Care-O-Bot 4**.
-
-The startup configuration uses:
-
-``` text
-ROBOT=cob4-5
-ROBOT_ENV=ipa-Nirish
-```
-
-Logs are stored under:
-
-``` text
-$HOME/privacy_sim_logs
-```
-
-The project documentation also references the ipa-apartment
-environment.
-
-## Software Stack
-
--   ROS Noetic
--   Gazebo
--   Care-O-Bot 4
--   GMapping
--   Python / rospy
--   OpenCV
--   cv_bridge
--   Ultralytics YOLO
--   RViz
-
 ## Repository Structure
 
 A typical project structure is:
@@ -124,8 +92,17 @@ privacy_environment_map/
 └── ...
 ```
 
-> The exact repository structure should be checked against the files
-> present in the project.
+## Software Stack
+
+-   ROS Noetic
+-   Gazebo
+-   Care-O-Bot 4
+-   GMapping
+-   Python / rospy
+-   OpenCV
+-   cv_bridge
+-   Ultralytics YOLO
+-   RViz
 
 ## Prerequisites
 
@@ -145,6 +122,26 @@ Source ROS and the project workspace:
 source /opt/ros/noetic/setup.bash
 source ~/catkin_ws/devel/setup.bash
 ```
+
+## Hardware and Simulation
+
+The project uses the simulated **Care-O-Bot 4**.
+
+The startup configuration uses:
+
+``` text
+ROBOT=cob4-5
+ROBOT_ENV=ipa-Nirish
+```
+
+Logs are stored under:
+
+``` text
+$HOME/privacy_sim_logs
+```
+
+The project documentation also references the ipa-apartment
+environment.
 
 ## Model Setup
 
@@ -179,7 +176,7 @@ rosrun gmapping slam_gmapping \
 After startup, use RViz to visualize the `/map` topic and privacy
 markers.
 
-## Manual Pipeline
+## Manual Pipeline (Starting Each Component Indivisually)
 
 The main components can be started separately when debugging:
 
