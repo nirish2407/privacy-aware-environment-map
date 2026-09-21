@@ -341,7 +341,29 @@ class PrivacyObjectPosition(object):
     # =============================================================
 
     def detection_callback(self, msg):
+        """
+        Callback function that receives detections from the detector.
 
+        The detector publishes multiple detections in a single message.
+        Each detection is expected to contain:
+
+            name,confidence,x1,y1,x2,y2,secs,nsecs,camera_id
+
+        Example:
+
+            person,0.95,100,50,200,300,1234567890,123456789,cam0
+
+        Multiple detections are separated using '|'.
+
+        This function performs four main tasks:
+
+            1. Parse the incoming detection message.
+            2. Validate and store each detection.
+            3. Match detections to existing object tracks.
+            4. Process detections and remove stale tracks.
+        """
+
+        # List that will contain all valid detections from this image.
         detections = []
 
         # ---------------------------------------------------------
@@ -357,6 +379,7 @@ class PrivacyObjectPosition(object):
 
             parts = text.split(",")
 
+            # At least 8 fields are required.
             if len(parts) < 8:
                 rospy.logwarn(
                     "Invalid detection: %s",
@@ -366,25 +389,29 @@ class PrivacyObjectPosition(object):
 
             try:
 
+                # Object/class name detected by the detector.
                 name = parts[0]
 
                 confidence = float(parts[1])
 
+                # Bounding-box coordinates.
                 x1 = float(parts[2])
                 y1 = float(parts[3])
                 x2 = float(parts[4])
                 y2 = float(parts[5])
 
+                # Extract the ROS timestamp.
                 secs = int(parts[6])
                 nsecs = int(parts[7])
 
+                # Create a ROS Time object from the timestamp fields.
                 stamp = rospy.Time(
                     secs,
                     nsecs
                 )
 
                 # -----------------------------------------------------
-                # FIX: 9th field is the source camera_id, added so
+                # 9th field is the source camera_id, added so
                 # detections from multiple cameras can each be
                 # back-projected with the right depth/intrinsics/TF
                 # frame. Older detectors that only send 8 fields are
@@ -407,6 +434,7 @@ class PrivacyObjectPosition(object):
                 u = (x1 + x2) / 2.0
                 v = (y1 + y2) / 2.0
 
+                # Store the parsed detection.
                 detections.append({
                     "name": name,
                     "camera_id": camera_id,
@@ -427,6 +455,10 @@ class PrivacyObjectPosition(object):
                     str(e)
                 )
 
+        # -------------------------------------------------------------
+        # If no valid detections were received, there is nothing else
+        # to process for this callback.
+        # -------------------------------------------------------------
         if len(detections) == 0:
             return
 
@@ -465,9 +497,25 @@ class PrivacyObjectPosition(object):
     # =============================================================
 
     def assign_tracks(self, detections):
+        """
+        Match the current detections to existing object tracks.
 
+        Tracking is performed using the center point of each bounding
+        box in image/pixel space.
+
+        A detection is matched to the nearest existing track when:
+
+            1. The object names are the same.
+            2. The camera IDs are the same.
+            3. The pixel distance is below the configured threshold.
+
+        If no suitable track exists, a new track is created.
+        """
+
+        # Stores the final detection -> track assignments.
         assignments = []
 
+        # Keep track of tracks that have already been assigned
         used_tracks = set()
 
         # ---------------------------------------------------------
@@ -481,20 +529,25 @@ class PrivacyObjectPosition(object):
             key=lambda d: d["v"]
         )
 
+        # -------------------------------------------------------------
+        # Process every detection one by one.
+        # -------------------------------------------------------------
         for detection in detections:
 
+            # Extract the information needed for tracking.
             name = detection["name"]
             camera_id = detection["camera_id"]
             u = detection["u"]
             v = detection["v"]
 
+            # best_id stores the closest matching track.
             best_id = None
             best_distance = float("inf")
 
             # -----------------------------------------------------
             # Find nearest existing track in image space.
             #
-            # FIX: also require the same camera_id. Pixel (u, v) is
+            # also require the same camera_id. Pixel (u, v) is
             # meaningless across two different cameras' images --
             # without this, a detection from the right camera could
             # get matched to a track that was actually created from
@@ -515,6 +568,7 @@ class PrivacyObjectPosition(object):
                 du = u - track["u"]
                 dv = v - track["v"]
 
+                # Calculate Euclidean distance in pixel space
                 pixel_distance = math.sqrt(
                     du * du + dv * dv
                 )
@@ -533,12 +587,18 @@ class PrivacyObjectPosition(object):
             # Create a new persistent track.
             # -----------------------------------------------------
 
+            # =========================================================
+            # CREATE A NEW TRACK IF NO MATCH WAS FOUND
+            # =========================================================
+
             if best_id is None:
 
+                # Allocate a new unique track ID.
                 best_id = self.next_track_id
 
                 self.next_track_id += 1
 
+                # Create the new track entry.
                 self.tracks[best_id] = {
                     "name": name,
                     "camera_id": camera_id,
@@ -559,6 +619,10 @@ class PrivacyObjectPosition(object):
             # -----------------------------------------------------
             # Update image position.
             # -----------------------------------------------------
+
+            # =========================================================
+            # UPDATE EXISTING/NEW TRACK
+            # =========================================================
 
             self.tracks[best_id]["u"] = u
             self.tracks[best_id]["v"] = v
@@ -581,16 +645,30 @@ class PrivacyObjectPosition(object):
         detection,
         track_id
     ):
+        """
+        Process one object detection and convert its 2D image position
+        into a filtered 3D position in the map frame.
+
+        The function returns early whenever required information is
+        unavailable or a measurement fails validation.
+        """
+
+        # -------------------------------------------------------------
+        # EXTRACT INFORMATION FROM THE DETECTION
+        # -------------------------------------------------------------
 
         name = detection["name"]
         camera_id = detection["camera_id"]
         confidence = detection["confidence"]
 
+        # Center pixel of the detected bounding box.
         u = detection["u"]
         v = detection["v"]
 
+        # Timestamp associated with this detection.
         detection_time = detection["stamp"]
 
+        # Get the configuration belonging to the camera that produced
         config = self.camera_configs[camera_id]
 
         rospy.loginfo("")
@@ -622,6 +700,8 @@ class PrivacyObjectPosition(object):
         # INTRINSICS AVAILABLE?
         # =========================================================
 
+        # If CameraInfo has not been received yet, we cannot perform
+        # the 3D reconstruction.
         if config["camera_info"] is None:
 
             if not config["warned_no_camera_info"]:
@@ -637,6 +717,10 @@ class PrivacyObjectPosition(object):
 
             return
 
+        # -------------------------------------------------------------
+        # EXTRACT CAMERA INTRINSIC PARAMETERS
+        # -------------------------------------------------------------
+
         fx = config["camera_info"].K[0]
         fy = config["camera_info"].K[4]
         cx = config["camera_info"].K[2]
@@ -651,6 +735,7 @@ class PrivacyObjectPosition(object):
             detection_time
         )
 
+        # No depth image was available in the buffer.
         if depth_msg is None:
 
             rospy.logwarn(
@@ -661,6 +746,8 @@ class PrivacyObjectPosition(object):
 
             return
 
+        # Calculate the time difference between the detection and the
+        # selected depth image.
         time_difference = abs(
             (
                 depth_msg.header.stamp
@@ -673,6 +760,7 @@ class PrivacyObjectPosition(object):
             time_difference
         )
 
+        # Reject the depth image if it is too old.
         if time_difference > self.max_depth_time_difference:
 
             rospy.logwarn(
@@ -693,6 +781,7 @@ class PrivacyObjectPosition(object):
             v
         )
 
+        # No valid depth was found near the detection.
         if depth_value is None:
 
             rospy.logwarn(
@@ -710,6 +799,10 @@ class PrivacyObjectPosition(object):
             depth_value
         )
 
+        # -------------------------------------------------------------
+        # VALIDATE DEPTH RANGE
+        # -------------------------------------------------------------
+
         if depth_value < self.min_depth or depth_value > self.max_depth:
 
             rospy.logwarn(
@@ -724,6 +817,19 @@ class PrivacyObjectPosition(object):
         # =========================================================
         # RANGE JUMP CHECK
         # =========================================================
+        #
+        # Compare the newly measured depth with the previous depth
+        # stored for this track.
+        #
+        # This helps reject sudden depth changes caused by:
+        #
+        #   - noisy depth pixels
+        #   - incorrect depth association
+        #   - temporary sensor failures
+        #   - an incorrect detection
+        #
+        # A real object normally should not suddenly change its range
+        # by a very large amount between consecutive detections.
 
         previous_range = self.tracks[
             track_id
@@ -796,11 +902,13 @@ class PrivacyObjectPosition(object):
             depth_msg.header.stamp
         )
 
+        # TF was not available at the requested timestamp.
         if tf_map_camera is None:
             return
 
         R_map_camera, t_map_camera = tf_map_camera
 
+        # Apply the rigid transformation
         measured_map = (
             np.dot(
                 R_map_camera,
@@ -820,6 +928,7 @@ class PrivacyObjectPosition(object):
         # MAP POSITION JUMP CHECK
         # =========================================================
 
+        # Retrieve the previous filtered map position for this track.
         previous_position = self.tracks[
             track_id
         ]["position"]
@@ -861,6 +970,9 @@ class PrivacyObjectPosition(object):
                 (1.0 - alpha) * previous_position
             )
 
+        # Save the filtered position so that the next detection can:
+        #   1. calculate movement
+        #   2. smooth against this position
         self.tracks[
             track_id
         ]["position"] = filtered_map
@@ -922,7 +1034,7 @@ class PrivacyObjectPosition(object):
         # =========================================================
         # PUBLISH POSITION
         #
-        # FIX: publish a String on /privacy_objects_map instead of
+        # publish a String on /privacy_objects_map instead of
         # building a Marker here. privacy_marker.py owns turning
         # this into an RViz Marker. The track id is embedded in the
         # name field ("name_trackid") so that multiple instances of
@@ -945,14 +1057,30 @@ class PrivacyObjectPosition(object):
         depth_buffer is the per-camera buffer for whichever camera
         produced the detection being processed (see
         self.camera_configs[camera_id]["depth_buffer"]).
+
+        Parameters
+        ----------
+        depth_buffer:
+            List/deque of recent depth messages for one camera.
+
+        timestamp:
+            Timestamp of the object detection.
+
+        Returns
+        -------
+        depth_msg or None:
+            The closest depth image, or None if the buffer is empty.
         """
 
+        # No depth images available.
         if not depth_buffer:
             return None
 
+        # No depth images available.
         best_depth = None
         best_difference = float("inf")
 
+        # Search all buffered depth images.
         for depth_msg in depth_buffer:
 
             difference = abs(
@@ -962,6 +1090,8 @@ class PrivacyObjectPosition(object):
                 ).to_sec()
             )
 
+            # Replace the current best candidate if this image is
+            # temporally closer to the detection.
             if difference < best_difference:
 
                 best_difference = difference
@@ -1003,13 +1133,21 @@ class PrivacyObjectPosition(object):
             )
             return None
 
+        # Get image dimensions.
         height, width = depth_image.shape[:2]
 
+        # Convert floating-point image coordinates to the nearest
+        # integer pixel.
         center_u = int(round(u))
         center_v = int(round(v))
 
+        # Make sure the requested pixel is inside the image.
         if not (0 <= center_u < width and 0 <= center_v < height):
             return None
+
+        # -------------------------------------------------------------
+        # CONVERT DEPTH TO METRES
+        # -------------------------------------------------------------
 
         if depth_image.dtype == np.uint16:
             # 16UC1 depth images are conventionally in millimetres.
@@ -1018,10 +1156,15 @@ class PrivacyObjectPosition(object):
             # 32FC1 (and anything else) assumed already in metres.
             scale = 1.0
 
+        # Start with the configured patch radius.
         radius = self.depth_patch_radius
 
+        # -------------------------------------------------------------
+        # SEARCH FOR VALID DEPTH
+        # -------------------------------------------------------------
         while radius <= self.max_depth_patch_radius:
 
+            # Calculate image bounds for the current patch.
             u_min = max(0, center_u - radius)
             u_max = min(width, center_u + radius + 1)
             v_min = max(0, center_v - radius)
@@ -1056,6 +1199,19 @@ class PrivacyObjectPosition(object):
         source_frame,
         timestamp
     ):
+        """
+        Look up the transformation between two TF frames.
+
+        Parameters:
+            target_frame: The frame we want the coordinates expressed in.
+            source_frame: The frame from which the coordinates originate.
+            timestamp: The ROS time at which the transform is required.
+
+        Returns:
+            R: 3x3 rotation matrix.
+            t: 3D translation vector.
+            None: If the TF lookup fails.
+        """
 
         try:
 
@@ -1077,6 +1233,15 @@ class PrivacyObjectPosition(object):
 
             return None
 
+        # -------------------------------------------------------------
+        # Extract the quaternion representing the rotation.
+        #
+        # ROS stores rotations as a quaternion:
+        #     q = (x, y, z, w)
+        #
+        # The quaternion is converted below into a 3x3 rotation matrix.
+        # -------------------------------------------------------------
+
         q = transform.transform.rotation
 
         x = q.x
@@ -1087,6 +1252,17 @@ class PrivacyObjectPosition(object):
         # ---------------------------------------------------------
         # Quaternion -> rotation matrix
         # ---------------------------------------------------------
+
+        # -------------------------------------------------------------
+        # This converts the ROS quaternion into a standard 3x3
+        # rotation matrix.
+        #
+        # The resulting matrix can be used to rotate a 3D point:
+        #
+        #     rotated_point = R @ point
+        #
+        # where R is the rotation matrix.
+        # -------------------------------------------------------------
 
         R = np.array([
 
@@ -1110,6 +1286,7 @@ class PrivacyObjectPosition(object):
 
         ])
 
+        # Extract the translation component of the TF transform.
         t = np.array([
             transform.transform.translation.x,
             transform.transform.translation.y,
@@ -1146,8 +1323,10 @@ class PrivacyObjectPosition(object):
         hard-coded z=1.2).
         """
 
+        # Create a unique identifier for this tracked object.
         unique_name = f"{name}_{track_id}"
 
+        # Build the comma-separated message.
         data = (
             f"{unique_name},"
             f"{float(position[0]):.3f},"
@@ -1155,6 +1334,7 @@ class PrivacyObjectPosition(object):
             f"{float(position[2]):.3f}"
         )
 
+        # Publish the position on the configured ROS topic.
         self.position_pub.publish(data)
 
         rospy.loginfo(
@@ -1171,10 +1351,28 @@ class PrivacyObjectPosition(object):
 
     def remove_stale_tracks(self):
 
+        """
+        Remove tracks that have not been detected for longer than
+        self.track_timeout.
+
+        A track is considered stale when:
+
+            current_time - last_seen > track_timeout
+
+        Before removing a track from the internal dictionary, a
+        deletion message is published so that the corresponding
+        visualization marker can also be removed.
+        """
+
+        # Get the current ROS time.
         now = rospy.Time.now()
 
+        # Store stale track IDs in a separate list.
         stale_tracks = []
 
+        # -------------------------------------------------------------
+        # Check the age of every currently tracked object.
+        # -------------------------------------------------------------
         for track_id, track in self.tracks.items():
 
             age = (
@@ -1188,6 +1386,9 @@ class PrivacyObjectPosition(object):
                     track_id
                 )
 
+        # -------------------------------------------------------------
+        # Remove all tracks identified as stale.
+        # -------------------------------------------------------------
         for track_id in stale_tracks:
 
             name = self.tracks[
@@ -1200,11 +1401,14 @@ class PrivacyObjectPosition(object):
                 track_id
             )
 
+            # Tell privacy_marker.py to remove the corresponding
+            # visualization marker.
             self.publish_deletion(
                 track_id,
                 name
             )
 
+            # Remove the track from the internal tracking dictionary.
             del self.tracks[
                 track_id
             ]
@@ -1220,10 +1424,24 @@ class PrivacyObjectPosition(object):
         positions.
         """
 
+        # -------------------------------------------------------------
+        # Generate the same unique object name that was used when
+        # publishing the object's position.
+        #
+        # Keeping the key identical is important because the marker
+        # node uses it to identify which marker should be deleted.
+        # -------------------------------------------------------------
         unique_name = f"{name}_{track_id}"
 
+        # -------------------------------------------------------------
+        # Create the deletion message.
+        # -------------------------------------------------------------
         data = f"{unique_name},DELETE"
 
+        # -------------------------------------------------------------
+        # Publish the deletion command using the same ROS publisher
+        # used for normal position updates.
+        # -------------------------------------------------------------
         self.position_pub.publish(data)
 
 
@@ -1235,10 +1453,30 @@ if __name__ == "__main__":
 
     try:
 
+        # ---------------------------------------------------------
+        # Create the ROS node.
+        #
+        # The PrivacyObjectPosition constructor is expected to:
+        #   - initialize the ROS node/resources
+        #   - create publishers/subscribers
+        #   - initialize TF
+        #   - initialize the tracking data structures
+        # ---------------------------------------------------------
         node = PrivacyObjectPosition()
 
+        # ---------------------------------------------------------
+        # Keep the node running and allow ROS callbacks to execute.
+        #
+        # rospy.spin() blocks here until ROS shuts down.
+        # ---------------------------------------------------------
         rospy.spin()
 
     except rospy.ROSInterruptException:
 
+        # ---------------------------------------------------------
+        # Normal ROS shutdown.
+        #
+        # This exception is raised when the node is interrupted,
+        # for example by Ctrl+C or rosnode shutdown.
+        # ---------------------------------------------------------
         pass
